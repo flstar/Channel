@@ -13,12 +13,13 @@ public:
 	}
 };
 
-template <typename T>	
+template <typename T>
 class Channel
 {
 public:
-	Channel()
+	Channel(size_t size = 1024)
 	{
+		size_ = size;
 		closed_ = false;
 	}
 	
@@ -35,8 +36,15 @@ public:
 		if (closed_) {
 			throw ClosedChannelException();
 		}
+		// Push item even if the queue is full/overfull
 		q_.push(t);
-		cv_.notify_one();
+		rcv_.notify_one();
+		// But we won't return if:
+		//  - queue is overfull, and
+		//  - channel is still open
+		while (!closed_ && q_.size() > size_) {
+			scv_.wait(locker);
+		}
 	}
 
 	T recv()
@@ -47,12 +55,16 @@ public:
 				throw ClosedChannelException();
 			}
 			else {
-				cv_.wait(locker);
+				rcv_.wait(locker);
 			}
 		}
-		// Remove the head element and return it
+		// Remove the head element to return it
 		T t = q_.front();
 		q_.pop();
+		// If queue is back to full from overfull, notify all sends waiting on it
+		if (q_.size() <= size_) {
+			scv_.notify_all();
+		}
 		return t;
 	}
 
@@ -64,15 +76,18 @@ public:
 		}
 		else {
 			closed_ = true;
-			cv_.notify_all();
+			rcv_.notify_all();
+			scv_.notify_all();
 		}
 	}
- 
+
 protected:
-	std::queue<T> q_;
-	
 	std::mutex m_;
-	std::condition_variable cv_;
+	std::condition_variable rcv_;		// cond var used by reciever
+	std::condition_variable scv_;		// cond var used by sender
+
+	std::queue<T> q_;
+	size_t size_;
 	bool closed_;
 };
 
