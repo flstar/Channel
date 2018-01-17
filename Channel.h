@@ -58,7 +58,7 @@ public:
 		T t = q_.front();
 		q_.pop();
 		// If queue is back to full from overfull, notify all sends waiting on it
-		if (q_.size() <= size_) {
+		if (q_.size() == size_) {
 			scv_.notify_all();
 		}
 		return t;
