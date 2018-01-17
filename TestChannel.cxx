@@ -129,6 +129,33 @@ TEST(Channel, CloseNotifyAndException)
 	f.get();
 }
 
+TEST(Channel, BlockMultiSenders)
+{
+	Channel<int> c(0);
+	atomic<bool> r1(false), r2(false);
+
+	auto f1 = async([&c, &r1] () {
+		c.send(1);
+		EXPECT_EQ(true, r1);
+	});
+
+	auto f2 = async([&c, &r2] () {
+		usleep(1);
+		c.send(2);
+		EXPECT_EQ(true, r2);
+	});
+
+	usleep(2);
+	r1 = true;
+	EXPECT_EQ(1, c.recv());
+
+	r2 = true;
+	EXPECT_EQ(2, c.recv());
+
+	f1.get();
+	f2.get();
+}
+
 int main(int argc, char *argv[])
 {
 	::testing::InitGoogleTest(&argc, argv);
