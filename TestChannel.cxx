@@ -10,7 +10,7 @@ using namespace std;
 TEST(Channel, SimpleSendRecv)
 {
 	Channel<int> c;
-	
+
 	auto f = async([&c] () {
 		for (int i=0; i<100; i++) {
 			c.send(i);
@@ -30,7 +30,7 @@ TEST(Channel, SizedSendRecv)
 {
 	Channel<int> c(2);
 	atomic<bool> r1(false), r2(false);
-	
+
 	auto f = async([&c, &r1, &r2] () {
 		c.send(1);
 		c.send(2);
@@ -38,7 +38,7 @@ TEST(Channel, SizedSendRecv)
 		// should blocked at this line until 1 is recieved
 		c.send(3);
 		EXPECT_EQ(true, r1);
-		
+
 		// should blocked at this line until 1 is recieved
 		c.send(4);
 		EXPECT_EQ(true, r2);
@@ -48,11 +48,11 @@ TEST(Channel, SizedSendRecv)
 	usleep(1);
 	r1 = true;
 	EXPECT_EQ(1, c.recv());
-	
+
 	usleep(1);
 	r2 = true;
 	EXPECT_EQ(2, c.recv());
-	
+
 	EXPECT_EQ(3, c.recv());
 	EXPECT_EQ(4, c.recv());
 	EXPECT_THROW(c.recv(), ClosedChannelException);
@@ -64,7 +64,7 @@ TEST(Channel, SyncSendRecv)
 {
 	Channel<int> c(0);
 	atomic<bool> r1(false), r2(false);
-	
+
 	auto f = async([&c, &r1, &r2] () {
 		c.send(1);
 		EXPECT_EQ(true, r1);
@@ -87,6 +87,47 @@ TEST(Channel, SyncSendRecv)
 
 }
 
+TEST(Channel, Operators)
+{
+	Channel<int> c;
+
+	auto f = async([&c] () {
+		c << 1 << 2 << 3;
+		c.close();
+	});
+
+	int x1, x2, x3, x4;
+	c >> x1 >> x2 >> x3;
+	EXPECT_EQ(1, x1);
+	EXPECT_EQ(2, x2);
+	EXPECT_EQ(3, x3);
+	usleep(1);
+	EXPECT_THROW(c >> x4, ClosedChannelException);
+
+	f.get();
+}
+
+TEST(Channel, CloseNotifyAndException)
+{
+	Channel<int> c(0);
+	atomic<bool> closed(false);
+
+	auto f = async([&c, &closed] () {
+		c.send(1);
+		EXPECT_EQ(true, closed);
+		EXPECT_THROW(c.close(), ClosedChannelException);
+	});
+
+	usleep(1);
+	closed = true;
+	c.close();
+
+	EXPECT_EQ(1, c.recv());
+	EXPECT_THROW(c.recv(), ClosedChannelException);
+	EXPECT_THROW(c.close(), ClosedChannelException);
+
+	f.get();
+}
 
 int main(int argc, char *argv[])
 {

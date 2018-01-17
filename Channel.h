@@ -21,13 +21,10 @@ public:
 		size_ = size;
 		closed_ = false;
 	}
-	
+	virtual ~Channel() {}
+
 	Channel (const Channel &) = delete;
 	Channel & operator = (const Channel &) = delete;
-	
-	virtual ~Channel()
-	{
-	}
 
 	void send(const T &t)
 	{
@@ -67,6 +64,10 @@ public:
 		return t;
 	}
 
+	/** @brief After a channel is closed, data could not be sent to it any more. But:
+	 *    - existing data is still available for recv()
+	 *    - for senders blocked at send(), they will be unblocked and the data is available for recv() too
+	 */
 	void close()
 	{
 		std::unique_lock<std::mutex> locker(m_);
@@ -78,6 +79,16 @@ public:
 			rcv_.notify_all();
 			scv_.notify_all();
 		}
+	}
+
+	Channel & operator << (const T &t) {
+		send(t);
+		return *this;
+	}
+
+	Channel & operator >> (T &t) {
+		t = recv();
+		return *this;
 	}
 
 protected:
