@@ -2,7 +2,6 @@
 #define __CHANNEL_H__
 
 #include <queue>
-#include <atomic>
 #include <mutex>
 
 class ClosedChannelException : std::exception
@@ -83,8 +82,8 @@ public:
 
 protected:
 	std::mutex m_;
-	std::condition_variable rcv_;		// cond var used by reciever
-	std::condition_variable scv_;		// cond var used by sender
+	std::condition_variable rcv_;		// cond var reciever waits on
+	std::condition_variable scv_;		// cond var sender waits on
 
 	std::queue<T> q_;
 	size_t size_;
