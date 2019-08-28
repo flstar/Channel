@@ -43,6 +43,15 @@ public:
 	Channel (const Channel &) = delete;
 	Channel & operator = (const Channel &) = delete;
 
+	/** @brief
+	 * Send an element to the channel.
+	 *
+	 * If the channel is overfull (more capacity_) including current element,
+	 * the sender will be blocked until the channel is back to no more than capacity_ elements.
+	 *
+	 * If a sender is being blocked then the channel is closed, the sender will return immediately
+	 * but the element sent is still available in channel.
+	 */
 	void send(const T &t)
 	{
 		std::unique_lock<std::mutex> locker(m_);
@@ -51,13 +60,14 @@ public:
 		}
 		// Push item even if the queue is full/overfull
 		q_.push(t);
-		if (q_.size() == 1) {
-			rcv_.notify_one();
+		rcv_.notify_one();
+
+		// if queue is overfull, sender creates a cv and wait on it until it is waken up
+		if (q_.size() > capacity_) {
+			std::shared_ptr<std::condition_variable> scv (new std::condition_variable());
+			scvq_.push(scv);
+			scv->wait(locker);
 		}
-		// But we will hold on here unless:
-		//  - queue is not overfull, or
-		//  - channel is closed
-		scv_.wait(locker, [&] () { return closed_ || q_.size() <= capacity_; } );
 	}
 	/** @brief
 	 * After a channel is closed, data could not be sent to it any more. But:
@@ -74,7 +84,10 @@ public:
 		else {
 			closed_ = true;
 			rcv_.notify_all();
-			scv_.notify_all();
+			while (!scvq_.empty()) {
+				scvq_.front()->notify_one();
+				scvq_.pop();
+			}
 		}
 	}
 
@@ -130,9 +143,10 @@ protected:
 		T t = q_.front();
 		q_.pop();
 
-		// If queue is back to full from overfull, notify all senders waiting on it
-		if (q_.size() == capacity_) {
-			scv_.notify_all();
+		// If scvq_ is not empty, wake up and pop the first one
+		if (!scvq_.empty()) {
+			scvq_.front()->notify_one();
+			scvq_.pop();
 		}
 
 		return t;
@@ -141,7 +155,7 @@ protected:
 protected:
 	std::mutex m_;
 	std::condition_variable rcv_;		// cond var receivers wait on
-	std::condition_variable scv_;		// cond var senders wait on
+	std::queue<std::shared_ptr<std::condition_variable>> scvq_;
 
 	std::queue<T> q_;
 	size_t capacity_;
