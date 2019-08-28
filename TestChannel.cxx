@@ -11,7 +11,7 @@ TEST(Channel, SimpleSendRecv)
 {
 	Channel<int> c;
 
-	auto f = async([&c] () {
+	auto f = async(launch::async, [&c] () {
 		for (int i=0; i<100; i++) {
 			c.send(i);
 		}
@@ -31,7 +31,7 @@ TEST(Channel, SizedSendRecv)
 	Channel<int> c(2);
 	atomic<bool> r1(false), r2(false);
 
-	auto f = async([&c, &r1, &r2] () {
+	auto f = async(launch::async, [&c, &r1, &r2] () {
 		c.send(1);
 		c.send(2);
 
@@ -45,11 +45,11 @@ TEST(Channel, SizedSendRecv)
 		c.close();
 	});
 
-	usleep(1);
+	usleep(1000);
 	r1 = true;
 	EXPECT_EQ(1, c.recv());
 
-	usleep(1);
+	usleep(1000);
 	r2 = true;
 	EXPECT_EQ(2, c.recv());
 
@@ -65,7 +65,7 @@ TEST(Channel, SyncSendRecv)
 	Channel<int> c(0);
 	atomic<bool> r1(false), r2(false);
 
-	auto f = async([&c, &r1, &r2] () {
+	auto f = async(launch::async, [&c, &r1, &r2] () {
 		c.send(1);
 		EXPECT_EQ(true, r1);
 		c.send(2);
@@ -73,11 +73,11 @@ TEST(Channel, SyncSendRecv)
 		c.close();
 	});
 
-	usleep(1);
+	usleep(1000);
 	r1 = true;
 	EXPECT_EQ(1, c.recv());
 
-	usleep(1);
+	usleep(1000);
 	r2 = true;
 	EXPECT_EQ(2, c.recv());
 
@@ -91,17 +91,18 @@ TEST(Channel, Operators)
 {
 	Channel<int> c;
 
-	auto f = async([&c] () {
+	auto f = async(launch::async, [&c] () {
 		c << 1 << 2 << 3;
 		c.close();
 	});
 
 	int x1, x2, x3, x4;
+	usleep(10*1000);
 	c >> x1 >> x2 >> x3;
 	EXPECT_EQ(1, x1);
 	EXPECT_EQ(2, x2);
 	EXPECT_EQ(3, x3);
-	usleep(1);
+	usleep(10*1000);
 	EXPECT_THROW(c >> x4, ClosedChannelException);
 
 	f.get();
@@ -112,13 +113,13 @@ TEST(Channel, CloseNotifyAndException)
 	Channel<int> c(0);
 	atomic<bool> closed(false);
 
-	auto f = async([&c, &closed] () {
+	auto f = async(launch::async, [&c, &closed] () {
 		c.send(1);
 		EXPECT_EQ(true, closed);
 		EXPECT_THROW(c.close(), ClosedChannelException);
 	});
 
-	usleep(1);
+	usleep(1000);
 	closed = true;
 	c.close();
 
@@ -134,18 +135,18 @@ TEST(Channel, BlockMultiSenders)
 	Channel<int> c(0);
 	atomic<bool> r1(false), r2(false);
 
-	auto f1 = async([&c, &r1] () {
+	auto f1 = async(launch::async, [&] () {
 		c.send(1);
 		EXPECT_EQ(true, r1);
 	});
 
-	auto f2 = async([&c, &r2] () {
-		usleep(1);
+	auto f2 = async(launch::async, [&] () {
+		usleep(1000);
 		c.send(2);
 		EXPECT_EQ(true, r2);
 	});
 
-	usleep(2);
+	usleep(2000);
 	r1 = true;
 	EXPECT_EQ(1, c.recv());
 
@@ -156,9 +157,25 @@ TEST(Channel, BlockMultiSenders)
 	f2.get();
 }
 
+TEST(Channel, TryRecvTimeout)
+{
+	Channel<int> c;
+
+	EXPECT_THROW(c.try_recv_timeout(), TimeoutException);
+
+	c.send(1);
+	c.recv();
+
+	auto start = std::chrono::high_resolution_clock::now();
+	EXPECT_THROW(c.try_recv_timeout(100*1000), TimeoutException);
+	auto end = std::chrono::high_resolution_clock::now();
+
+	EXPECT_GT(end - start, std::chrono::microseconds(90*1000));
+}
+
+
 int main(int argc, char *argv[])
 {
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }
-

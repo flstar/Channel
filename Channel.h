@@ -4,11 +4,28 @@
 #include <queue>
 #include <mutex>
 
+
 class ClosedChannelException : std::exception
 {
 public:
 	virtual const char *what() const noexcept override {
-		return "Channel is closed!";
+		return "Channel was closed";
+	}
+};
+
+class TimeoutException : std::exception
+{
+public:
+	virtual const char *what() const noexcept override {
+		return "Timeout";
+	}
+};
+
+class InternalErrorException : std::exception
+{
+public:
+	virtual const char *what() const noexcept override {
+		return "Internal error";
 	}
 };
 
@@ -16,9 +33,9 @@ template <typename T>
 class Channel
 {
 public:
-	Channel(size_t size = 1024)
+	explicit Channel(size_t capacity = 1024)
 	{
-		size_ = size;
+		capacity_ = capacity;
 		closed_ = false;
 	}
 	virtual ~Channel() {}
@@ -34,39 +51,19 @@ public:
 		}
 		// Push item even if the queue is full/overfull
 		q_.push(t);
-		rcv_.notify_one();
-		// But we won't return if:
-		//  - queue is overfull, and
-		//  - channel is still open
-		while (!closed_ && q_.size() > size_) {
-			scv_.wait(locker);
+		if (q_.size() == 1) {
+			rcv_.notify_one();
 		}
+		// But we will hold on here unless:
+		//  - queue is not overfull, or
+		//  - channel is closed
+		scv_.wait(locker, [&] () { return closed_ || q_.size() <= capacity_; } );
 	}
-
-	T recv()
-	{
-		std::unique_lock<std::mutex> locker(m_);
-		while (q_.empty()) {
-			if (closed_) {
-				throw ClosedChannelException();
-			}
-			else {
-				rcv_.wait(locker);
-			}
-		}
-		// Remove the head element to return it
-		T t = q_.front();
-		q_.pop();
-		// If queue is back to full from overfull, notify all sends waiting on it
-		if (q_.size() == size_) {
-			scv_.notify_all();
-		}
-		return t;
-	}
-
-	/** @brief After a channel is closed, data could not be sent to it any more. But:
-	 *    - existing data is still available for recv()
-	 *    - for senders blocked at send(), they will be unblocked and the data is available for recv() too
+	/** @brief
+	 * After a channel is closed, data could not be sent to it any more. But:
+	 *   - existing data is still available for recv()
+	 *   - for senders being blocked at send(), they will be unblocked immediately.
+	 *     The data sent by these senders is still available to receivers
 	 */
 	void close()
 	{
@@ -81,6 +78,42 @@ public:
 		}
 	}
 
+	T recv()
+	{
+		std::unique_lock<std::mutex> locker(m_);
+		rcv_.wait(locker, [&] () { return closed_ || !q_.empty(); } );
+		if (!q_.empty()) {
+			return _recv_locked();
+		}
+		else if (closed_) {
+			throw ClosedChannelException();
+		}
+		else {
+			throw InternalErrorException();
+		}
+	}
+
+	T try_recv_timeout(uint64_t timeout_us = 0)
+	{
+		std::unique_lock<std::mutex> locker(m_);
+
+		rcv_.wait_for(
+			locker,
+			std::chrono::microseconds(timeout_us),
+			[&] () { return closed_ || !q_.empty(); }
+		);
+
+		if (!q_.empty()) {
+			return _recv_locked();
+		}
+		else if (closed_) {
+			throw ClosedChannelException();
+		}
+		else {
+			throw TimeoutException();
+		}
+	}
+
 	Channel & operator << (const T &t) {
 		send(t);
 		return *this;
@@ -92,12 +125,26 @@ public:
 	}
 
 protected:
+	T _recv_locked()
+	{
+		T t = q_.front();
+		q_.pop();
+
+		// If queue is back to full from overfull, notify all senders waiting on it
+		if (q_.size() == capacity_) {
+			scv_.notify_all();
+		}
+
+		return t;
+	}
+
+protected:
 	std::mutex m_;
-	std::condition_variable rcv_;		// cond var reciever waits on
-	std::condition_variable scv_;		// cond var sender waits on
+	std::condition_variable rcv_;		// cond var receivers wait on
+	std::condition_variable scv_;		// cond var senders wait on
 
 	std::queue<T> q_;
-	size_t size_;
+	size_t capacity_;
 	bool closed_;
 };
 

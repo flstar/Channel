@@ -1,13 +1,30 @@
 .PHONY: default test
 
-LIBS = -L/usr/local/lib -lgtest
-default: TestChannel
+CXX = g++ -std=c++11
+CXXFLAGS = -g -MMD -Wall
 
-TestChannel: TestChannel.cxx Channel.h
-	$(CXX) -o $@ $< $(LIBS)
+TARGET = TestChannel
+SRCS = TestChannel.cxx
+OBJS = $(SRCS:.cxx=.o)
+DEPS = $(OBJS:.o=.d)
+
+LIBS = -L/usr/local/lib -lgtest -lpthread
+
+default: $(TARGET)
+
+-include $(DEPS)
+
+$(TARGET): $(OBJS)
+	$(CXX) -o $@ $(OBJS) $(LIBS)
+
+%.o: %.cxx
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
 test: default
-	./TestChannel
+	./$(TARGET)
 
 clean:
-	rm -f TestChannel
+	rm -f $(TARGET) $(OBJS)
+
+clobber: clean
+	rm -rf $(DEPS)
