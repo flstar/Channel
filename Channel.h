@@ -13,21 +13,6 @@ public:
 	}
 };
 
-class TimeoutException : std::exception
-{
-public:
-	virtual const char *what() const noexcept override {
-		return "Timeout";
-	}
-};
-
-class InternalErrorException : std::exception
-{
-public:
-	virtual const char *what() const noexcept override {
-		return "Internal error";
-	}
-};
 
 template <typename T>
 class Channel
@@ -62,7 +47,7 @@ public:
 		q_.push(t);
 		rcv_.notify_one();
 
-		// if queue is overfull, sender creates a cv and wait on it until it is waken up
+		// if queue is overfull, sender creates a cv and wait on it
 		if (q_.size() > capacity_) {
 			std::shared_ptr<std::condition_variable> scv (new std::condition_variable());
 			scvq_.push(scv);
@@ -84,6 +69,7 @@ public:
 		else {
 			closed_ = true;
 			rcv_.notify_all();
+			// wake up all blocked senders
 			while (!scvq_.empty()) {
 				scvq_.front()->notify_one();
 				scvq_.pop();
@@ -94,36 +80,44 @@ public:
 	T recv()
 	{
 		std::unique_lock<std::mutex> locker(m_);
-		rcv_.wait(locker, [&] () { return closed_ || !q_.empty(); } );
+		rcv_.wait(locker, [&] () { return !q_.empty() || closed_; } );
 		if (!q_.empty()) {
-			return _recv_locked();
+			T t;
+			_recv_locked(&t);
+			return t;
 		}
-		else if (closed_) {
+		else /* if (closed_) */ {
 			throw ClosedChannelException();
-		}
-		else {
-			throw InternalErrorException();
 		}
 	}
 
-	T try_recv_timeout(uint64_t timeout_us = 0)
+	/** @brief
+	 * Try to retrieve one element from channel.
+	 * If the channel is empty, wait for at most timeout_us micro-seconds.
+	 * If the channel is empty and closed, throw CloseChannelException()
+	 * @return
+	 *   Return true if retrieve 1 element successfully.
+	 *   Return false if timeout.
+	 */
+	bool try_recv(T *t, uint64_t timeout_us = 0)
 	{
 		std::unique_lock<std::mutex> locker(m_);
 
 		rcv_.wait_for(
 			locker,
 			std::chrono::microseconds(timeout_us),
-			[&] () { return closed_ || !q_.empty(); }
+			[&] () { return !q_.empty() || closed_; }
 		);
 
 		if (!q_.empty()) {
-			return _recv_locked();
+			_recv_locked(t);
+			return true;
 		}
 		else if (closed_) {
 			throw ClosedChannelException();
 		}
-		else {
-			throw TimeoutException();
+		else {	// timeout
+			return false;
 		}
 	}
 
@@ -138,18 +132,20 @@ public:
 	}
 
 protected:
-	T _recv_locked()
+	void _recv_locked(T *t)
 	{
-		T t = q_.front();
+		if (t != nullptr) {
+			*t = q_.front();
+		}
 		q_.pop();
 
-		// If scvq_ is not empty, wake up and pop the first one
+		// If there is any sender being blocked in scvq_, notify the first one ane pop it
 		if (!scvq_.empty()) {
 			scvq_.front()->notify_one();
 			scvq_.pop();
 		}
 
-		return t;
+		return;
 	}
 
 protected:

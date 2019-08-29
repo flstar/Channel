@@ -157,20 +157,24 @@ TEST(Channel, BlockMultiSenders)
 	f2.get();
 }
 
-TEST(Channel, TryRecvTimeout)
+TEST(Channel, TryRecv)
 {
 	Channel<int> c;
+	int x;
 
-	EXPECT_THROW(c.try_recv_timeout(), TimeoutException);
+	EXPECT_FALSE(c.try_recv(&x));		// timeout immediately
 
 	c.send(1);
 	c.recv();
 
 	auto start = std::chrono::high_resolution_clock::now();
-	EXPECT_THROW(c.try_recv_timeout(100*1000), TimeoutException);
+	EXPECT_FALSE(c.try_recv(&x, 100*1000));
 	auto end = std::chrono::high_resolution_clock::now();
 
 	EXPECT_GT(end - start, std::chrono::microseconds(90*1000));
+
+	c.close();
+	EXPECT_THROW(c.try_recv(nullptr, 1000), ClosedChannelException);
 }
 
 
