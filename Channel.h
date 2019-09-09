@@ -34,8 +34,8 @@ public:
 	 * If the channel is overfull (more capacity_) including current element,
 	 * the sender will be blocked until the channel is back to no more than capacity_ elements.
 	 *
-	 * If a sender is being blocked then the channel is closed, the sender will return immediately
-	 * but the element sent is still available in channel.
+	 * If chanel is closed while a sender is being blocked, the sender will return immediately
+	 * but the element is left available in channel.
 	 */
 	void send(const T &t)
 	{
@@ -79,16 +79,12 @@ public:
 
 	T recv()
 	{
-		std::unique_lock<std::mutex> locker(m_);
-		rcv_.wait(locker, [&] () { return !q_.empty() || closed_; } );
-		if (!q_.empty()) {
-			T t;
-			_recv_locked(&t);
-			return t;
+		T t;
+		bool succ = false;
+		while (!succ) {
+			succ = try_recv(&t, 3600*1000000);
 		}
-		else /* if (closed_) */ {
-			throw ClosedChannelException();
-		}
+		return std::move(t);
 	}
 
 	/** @brief
