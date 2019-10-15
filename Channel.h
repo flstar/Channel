@@ -5,7 +5,7 @@
 #include <mutex>
 
 
-class ClosedChannelException : std::exception
+class ClosedChannelException : public std::exception
 {
 public:
 	virtual const char *what() const noexcept override {
