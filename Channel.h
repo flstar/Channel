@@ -9,7 +9,7 @@ class ClosedChannelException : std::exception
 {
 public:
 	virtual const char *what() const noexcept override {
-		return "Channel was closed";
+		return "Channel was closed!";
 	}
 };
 
@@ -39,7 +39,7 @@ public:
 	 */
 	void send(const T &t)
 	{
-		std::unique_lock<std::mutex> locker(m_);
+		std::unique_lock<std::mutex> locker(mtx_);
 		if (closed_) {
 			throw ClosedChannelException();
 		}
@@ -49,9 +49,7 @@ public:
 
 		// if queue is overfull, sender creates a cv and wait on it
 		if (q_.size() > capacity_) {
-			std::shared_ptr<std::condition_variable> scv (new std::condition_variable());
-			scvq_.push(scv);
-			scv->wait(locker);
+			scv_.wait(locker);
 		}
 	}
 	/** @brief
@@ -62,7 +60,7 @@ public:
 	 */
 	void close()
 	{
-		std::unique_lock<std::mutex> locker(m_);
+		std::unique_lock<std::mutex> locker(mtx_);
 		if (closed_) {
 			throw ClosedChannelException();
 		}
@@ -70,10 +68,7 @@ public:
 			closed_ = true;
 			rcv_.notify_all();
 			// wake up all blocked senders
-			while (!scvq_.empty()) {
-				scvq_.front()->notify_one();
-				scvq_.pop();
-			}
+			scv_.notify_all();
 		}
 	}
 
@@ -97,7 +92,7 @@ public:
 	 */
 	bool try_recv(T *t, uint64_t timeout_us = 0)
 	{
-		std::unique_lock<std::mutex> locker(m_);
+		std::unique_lock<std::mutex> locker(mtx_);
 
 		rcv_.wait_for(
 			locker,
@@ -135,19 +130,15 @@ protected:
 		}
 		q_.pop();
 
-		// If there is any sender being blocked in scvq_, notify the first one ane pop it
-		if (!scvq_.empty()) {
-			scvq_.front()->notify_one();
-			scvq_.pop();
-		}
+		scv_.notify_one();
 
 		return;
 	}
 
 protected:
-	std::mutex m_;
+	std::mutex mtx_;
 	std::condition_variable rcv_;		// cond var receivers wait on
-	std::queue<std::shared_ptr<std::condition_variable>> scvq_;
+	std::condition_variable scv_;		// cond var senders wait on
 
 	std::queue<T> q_;
 	size_t capacity_;

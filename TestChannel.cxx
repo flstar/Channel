@@ -12,13 +12,13 @@ TEST(Channel, SimpleSendRecv)
 	Channel<int> c;
 
 	auto f = async(launch::async, [&c] () {
-		for (int i=0; i<100; i++) {
+		for (int i=0; i<1000; i++) {
 			c.send(i);
 		}
 		c.close();
 	});
 
-	for (int i=0; i<100; i++) {
+	for (int i=0; i<1000; i++) {
 		EXPECT_EQ(i, c.recv());
 	}
 	EXPECT_THROW(c.recv(), ClosedChannelException);
