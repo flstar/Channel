@@ -71,6 +71,7 @@ TEST(Channel, SyncSendRecv)
 		c.send(2);
 		EXPECT_EQ(true, r2);
 		c.close();
+		printf("Channel closed!\n");
 	});
 
 	usleep(1000);
@@ -81,6 +82,7 @@ TEST(Channel, SyncSendRecv)
 	r2 = true;
 	EXPECT_EQ(2, c.recv());
 
+	usleep(1000);
 	EXPECT_THROW(c.recv(), ClosedChannelException);
 
 	f.get();
@@ -111,19 +113,15 @@ TEST(Channel, Operators)
 TEST(Channel, CloseNotifyAndException)
 {
 	Channel<int> c(0);
-	atomic<bool> closed(false);
 
-	auto f = async(launch::async, [&c, &closed] () {
-		c.send(1);
-		EXPECT_EQ(true, closed);
+	auto f = async(launch::async, [&c] () {
+		EXPECT_THROW(c.send(1), ClosedChannelException);
 		EXPECT_THROW(c.close(), ClosedChannelException);
 	});
 
 	usleep(1000);
-	closed = true;
 	c.close();
 
-	EXPECT_EQ(1, c.recv());
 	EXPECT_THROW(c.recv(), ClosedChannelException);
 	EXPECT_THROW(c.close(), ClosedChannelException);
 
@@ -177,6 +175,20 @@ TEST(Channel, TryRecv)
 	EXPECT_THROW(c.try_recv(nullptr, 1000), ClosedChannelException);
 }
 
+TEST(Channel, TrySend)
+{
+	Channel<int> c(1);
+
+	EXPECT_TRUE(c.try_send(1, 10));
+	EXPECT_FALSE(c.try_send(2, 10));
+
+	auto f1 = async(launch::async, [&] () {
+		EXPECT_TRUE(c.try_send(3, 10*1000000));
+	});
+
+	EXPECT_EQ(1, c.recv());
+	EXPECT_EQ(3, c.recv());
+}
 
 int main(int argc, char *argv[])
 {

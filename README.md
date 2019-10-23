@@ -3,6 +3,13 @@
 Golang style channel in c++ 11.
 
 Difference from concurrent queue:
-- Channel can be closed and ClosedChannelExeption will be thrown out if a sender tries to send element to closed channle, or a receiver tries to receive element from closed empty channel.
-- Method try_recv(T*, timeout_us) tries to get an element from channel. It return true if an element is gotten, or false if time out. If the channel is empty and closed, CloseChannelException will be thrown out.
-- Capacity limitation to control memory usage. If the channel is full, senders will be blocked. If capacity is 0, sender and receiver are fully synchronized.
+- Channel can be closed and ClosedChannelExeption will be thrown out if:
+  - a sender tries to send an element to a closed channle, or
+  - a receiver tries to get element from closed empty channel
+- Methods try_send() and try_recv() to send/recv with a timeout:
+  - returns true if operation succeeds, or false if times out
+  - as common send/recv, ClosedChannelException may be thrown out ifChannel is closed (and empty for try_recv())
+- Capacity limitation to control memory usage:
+  - if the channel is full, senders will be blocked
+  - if the channel is empty, the receiver will be blocked
+  - if capacity is 0, sender returns only after a receiver retrieves its element
