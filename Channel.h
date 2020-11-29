@@ -98,8 +98,8 @@ public:
 	/** @brief
 	 * After a channel is closed, data could not be sent to it any more. But:
 	 *   - existing data is still available for recv()
-	 *   - for senders being blocked at send(), they will be unblocked immediately.
-	 *     The data sent by these senders is still available to receivers
+	 *   - for senders being blocked at send(), they will be unblocked immediately
+	 *     with ClosedChannelException being thrown out
 	 */
 	void close()
 	{
