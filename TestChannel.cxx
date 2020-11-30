@@ -86,7 +86,6 @@ TEST(Channel, SyncSendRecv)
 	EXPECT_THROW(c.recv(), ClosedChannelException);
 
 	f.get();
-
 }
 
 TEST(Channel, Operators)
@@ -111,6 +110,26 @@ TEST(Channel, Operators)
 }
 
 TEST(Channel, CloseNotifyAndException)
+{
+	Channel<int> c(1);
+
+	auto f = async(launch::async, [&c] () {
+		c.send(1);
+		EXPECT_THROW(c.send(2), ClosedChannelException);
+		EXPECT_THROW(c.close(), ClosedChannelException);
+	});
+
+	usleep(10*1000);
+	c.close();
+
+	EXPECT_EQ(1, c.recv());
+	EXPECT_THROW(c.recv(), ClosedChannelException);
+	EXPECT_THROW(c.close(), ClosedChannelException);
+
+	f.get();
+}
+
+TEST(Channel, CloseNotifyAndExceptionUnbuffered)
 {
 	Channel<int> c(0);
 
@@ -188,6 +207,8 @@ TEST(Channel, TrySend)
 
 	EXPECT_EQ(1, c.recv());
 	EXPECT_EQ(3, c.recv());
+	
+	f1.get();
 }
 
 int main(int argc, char *argv[])
